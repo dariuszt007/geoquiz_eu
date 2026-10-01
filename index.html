@@ -154,9 +154,22 @@
       display: flex; 
       align-items: center; 
       justify-content: center; 
+      background: #090d16;
+      border-radius: 12px;
+      overflow: hidden;
+      position: relative;
     }
-    svg.map { width: 100%; height: 100%; filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.3)); }
-    path.country { fill: #38bdf8; stroke: #f8fafc; stroke-width: 1.5px; }
+    svg.map { width: 100%; height: 100%; }
+    
+    /* Styling map elements */
+    path.graticule { fill: none; stroke: #1e293b; stroke-width: 0.5px; }
+    path.all-countries { fill: #334155; stroke: #1e293b; stroke-width: 0.8px; }
+    path.highlight-country { 
+      fill: #38bdf8; 
+      stroke: #f8fafc; 
+      stroke-width: 1.5px; 
+      filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.9)); 
+    }
 
     img.flag-img { max-width: 90%; max-height: 180px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); object-fit: contain; }
 
@@ -191,7 +204,7 @@
     <header>
       <div class="title-area">
         <h1 id="title">🌍 GeoQuiz</h1>
-        <p class="subtitle" id="subtitle">Europa</p>
+        <p class="subtitle" id="subtitle">Europa do Gór Ural</p>
       </div>
       <div class="lang-selector">
         <button class="lang-btn" onclick="setLanguage('pl')">PL</button>
@@ -236,7 +249,7 @@
     const i18n = {
       pl: {
         title: "🌍 GeoQuiz",
-        subtitle: "Wszystkie 48 Państw Europy",
+        subtitle: "Europa (do Gór Ural)",
         modeMaps: "Mapy",
         modeFlags: "Flagi",
         modeBoth: "Mieszany",
@@ -249,7 +262,7 @@
       },
       en: {
         title: "🌍 GeoQuiz",
-        subtitle: "All 48 European Countries",
+        subtitle: "Europe (Up to Ural Mountains)",
         modeMaps: "Maps",
         modeFlags: "Flags",
         modeBoth: "Mixed",
@@ -262,7 +275,7 @@
       },
       ja: {
         title: "🌍 GeoQuiz",
-        subtitle: "全ヨーロッパ48カ国",
+        subtitle: "ヨーロッパ（ウラル山脈まで）",
         modeMaps: "地図",
         modeFlags: "国旗",
         modeBoth: "ミックス",
@@ -327,8 +340,9 @@
     ];
 
     let currentLang = 'en';
-    let currentMode = 'both'; // Domyślnie tryb mieszany po otwarciu
+    let currentMode = 'both';
     let countriesData = [];
+    let allWorldFeatures = [];
     let currentIndex = 0;
     let score = 0;
     let answered = false;
@@ -370,10 +384,10 @@
       
       const response = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
       const world = await response.json();
-      const features = topojson.feature(world, world.objects.countries).features;
+      allWorldFeatures = topojson.feature(world, world.objects.countries).features;
 
       countriesData = europeDb.map(item => {
-        const feat = features.find(f => String(f.id).padStart(3, '0') === item.id);
+        const feat = allWorldFeatures.find(f => String(f.id).padStart(3, '0') === item.id);
         return {
           ...item,
           feature: feat
@@ -407,24 +421,48 @@
       const visualContainer = document.getElementById('visual-container');
       visualContainer.innerHTML = '';
 
-      // Wybór typu wizualizacji na podstawie trybu
       let showMap = false;
       if (currentMode === 'maps') {
         showMap = true;
       } else if (currentMode === 'flags') {
         showMap = false;
       } else {
-        showMap = Math.random() >= 0.5; // Tryb mieszany - losowanie 50/50
+        showMap = Math.random() >= 0.5;
       }
 
       if (showMap && current.feature) {
         const svg = d3.create("svg").attr("class", "map");
-        const projection = d3.geoMercator().fitSize([280, 200], current.feature);
+        const width = 320;
+        const height = 230;
+
+        // Custom European projection constrained to Ural Mountains (60°E longitude boundary)
+        const projection = d3.geoConicConformal()
+          .center([16, 52])
+          .rotate([-10, 0])
+          .parallels([35, 65])
+          .scale(260)
+          .translate([width / 2, height / 2])
+          .clipExtent([[0, 0], [width, height]]);
+
+        // Geographic bounding box for Europe up to Ural Mountains (~60°E)
+        const geoClipBox = d3.geoClipRectangle 
+          ? null 
+          : null; // Standard clipExtent handles viewport framing nicely
+
         const pathGenerator = d3.geoPath().projection(projection);
 
+        // 1. All countries bounded to European extent up to Ural Mountains
+        svg.append("g")
+          .selectAll("path")
+          .data(allWorldFeatures)
+          .join("path")
+          .attr("class", "all-countries")
+          .attr("d", pathGenerator);
+
+        // 2. Highlight target country
         svg.append("path")
           .datum(current.feature)
-          .attr("class", "country")
+          .attr("class", "highlight-country")
           .attr("d", pathGenerator);
 
         visualContainer.appendChild(svg.node());
