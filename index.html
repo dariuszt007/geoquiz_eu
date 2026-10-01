@@ -161,8 +161,6 @@
     }
     svg.map { width: 100%; height: 100%; }
     
-    /* Styling map elements */
-    path.graticule { fill: none; stroke: #1e293b; stroke-width: 0.5px; }
     path.all-countries { fill: #334155; stroke: #1e293b; stroke-width: 0.8px; }
     path.highlight-country { 
       fill: #38bdf8; 
@@ -204,7 +202,7 @@
     <header>
       <div class="title-area">
         <h1 id="title">🌍 GeoQuiz</h1>
-        <p class="subtitle" id="subtitle">Europa do Gór Ural</p>
+        <p class="subtitle" id="subtitle">Europa (do Gór Ural)</p>
       </div>
       <div class="lang-selector">
         <button class="lang-btn" onclick="setLanguage('pl')">PL</button>
@@ -214,9 +212,9 @@
     </header>
 
     <div class="mode-select">
-      <button class="mode-btn" id="mode-maps" onclick="setMode('maps')">Mapy</button>
+      <button class="mode-btn active" id="mode-maps" onclick="setMode('maps')">Mapy</button>
       <button class="mode-btn" id="mode-flags" onclick="setMode('flags')">Flagi</button>
-      <button class="mode-btn active" id="mode-both" onclick="setMode('both')">Mieszany</button>
+      <button class="mode-btn" id="mode-both" onclick="setMode('both')">Mieszany</button>
     </div>
 
     <div class="stats">
@@ -339,8 +337,8 @@
       { id: "336", code: "va", name: { pl: "Watykan", en: "Vatican City", ja: "バチカン市国" }, capital: { pl: "Watykan", en: "Vatican City", ja: "バチカン市国" } }
     ];
 
-    let currentLang = 'en';
-    let currentMode = 'both';
+    let currentLang = 'pl';
+    let currentMode = 'maps';
     let countriesData = [];
     let allWorldFeatures = [];
     let currentIndex = 0;
@@ -382,22 +380,26 @@
     async function initQuiz() {
       const userLang = detectLanguage();
       
-      const response = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
-      const world = await response.json();
-      allWorldFeatures = topojson.feature(world, world.objects.countries).features;
+      try {
+        const response = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
+        const world = await response.json();
+        allWorldFeatures = topojson.feature(world, world.objects.countries).features;
 
-      countriesData = europeDb.map(item => {
-        const feat = allWorldFeatures.find(f => String(f.id).padStart(3, '0') === item.id);
-        return {
-          ...item,
-          feature: feat
-        };
-      });
+        countriesData = europeDb.map(item => {
+          const feat = allWorldFeatures.find(f => String(f.id).padStart(3, '0') === item.id);
+          return {
+            ...item,
+            feature: feat
+          };
+        });
 
-      countriesData.sort(() => Math.random() - 0.5);
-      document.getElementById('total-cards').textContent = countriesData.length;
-      
-      setLanguage(userLang);
+        countriesData.sort(() => Math.random() - 0.5);
+        document.getElementById('total-cards').textContent = countriesData.length;
+        
+        setLanguage(userLang);
+      } catch (err) {
+        console.error("Error loading geography data:", err);
+      }
     }
 
     function setMode(mode) {
@@ -421,6 +423,10 @@
       const visualContainer = document.getElementById('visual-container');
       visualContainer.innerHTML = '';
 
+      // STRICT MODE DETERMINATION:
+      // 'maps' ALWAYS displays the map
+      // 'flags' ALWAYS displays the flag
+      // 'both' randomly toggles 50/50
       let showMap = false;
       if (currentMode === 'maps') {
         showMap = true;
@@ -430,12 +436,12 @@
         showMap = Math.random() >= 0.5;
       }
 
-      if (showMap && current.feature) {
+      if (showMap) {
         const svg = d3.create("svg").attr("class", "map");
         const width = 320;
         const height = 230;
 
-        // Custom European projection constrained to Ural Mountains (60°E longitude boundary)
+        // Conic Conformal projection centered on Europe up to Ural Mountains (~60°E)
         const projection = d3.geoConicConformal()
           .center([16, 52])
           .rotate([-10, 0])
@@ -444,14 +450,9 @@
           .translate([width / 2, height / 2])
           .clipExtent([[0, 0], [width, height]]);
 
-        // Geographic bounding box for Europe up to Ural Mountains (~60°E)
-        const geoClipBox = d3.geoClipRectangle 
-          ? null 
-          : null; // Standard clipExtent handles viewport framing nicely
-
         const pathGenerator = d3.geoPath().projection(projection);
 
-        // 1. All countries bounded to European extent up to Ural Mountains
+        // 1. All countries background bounded to Europe
         svg.append("g")
           .selectAll("path")
           .data(allWorldFeatures)
@@ -459,11 +460,13 @@
           .attr("class", "all-countries")
           .attr("d", pathGenerator);
 
-        // 2. Highlight target country
-        svg.append("path")
-          .datum(current.feature)
-          .attr("class", "highlight-country")
-          .attr("d", pathGenerator);
+        // 2. Highlight target country if feature exists
+        if (current.feature) {
+          svg.append("path")
+            .datum(current.feature)
+            .attr("class", "highlight-country")
+            .attr("d", pathGenerator);
+        }
 
         visualContainer.appendChild(svg.node());
       } else {
