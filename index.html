@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GeoQuiz - Europe Flashcards</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script src="https://unpkg.com/topojson-client@3"></script>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --accent: #38bdf8;
+      --correct: #22c55e;
+      --wrong: #ef4444;
+      --text: #f8fafc;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+    body { background-color: var(--bg); color: var(--text); display: flex; flex-direction: column; align-items: center; min-height: 100vh; padding: 20px; }
+    
+    header { text-align: center; margin-bottom: 15px; width: 100%; max-width: 360px; position: relative; }
+    h1 { font-size: 1.6rem; color: var(--accent); margin-bottom: 4px; padding-right: 90px; text-align: left; }
+    p.subtitle { color: #94a3b8; font-size: 0.85rem; text-align: left; }
+
+    .lang-selector {
+      position: absolute;
+      top: 0;
+      right: 0;
+      display: flex;
+      gap: 4px;
+    }
+
+    .lang-btn {
+      background: #334155;
+      color: #f8fafc;
+      border: 1px solid #475569;
+      padding: 3px 7px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+
+    .lang-btn.active {
+      background: var(--accent);
+      color: #0f172a;
+      font-weight: bold;
+      border-color: var(--accent);
+    }
+
+    .mode-select {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 15px;
+      background: #1e293b;
+      padding: 5px;
+      border-radius: 12px;
+      border: 1px solid #334155;
+      width: 340px;
+    }
+
+    .mode-btn {
+      flex: 1;
+      background: transparent;
+      color: #94a3b8;
+      border: none;
+      padding: 8px 0;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .mode-btn.active {
+      background: var(--accent);
+      color: #0f172a;
+      font-weight: bold;
+    }
+
+    .stats { display: flex; justify-content: space-between; width: 340px; margin-bottom: 15px; font-weight: bold; background: #1e293b; padding: 10px 20px; border-radius: 30px; border: 1px solid #334155; font-size: 0.9rem; }
+    .stats span { color: var(--accent); }
+
+    .flashcard-container { perspective: 1000px; width: 340px; height: 370px; margin-bottom: 15px; }
+    .flashcard { width: 100%; height: 100%; position: relative; transform-style: preserve-3d; transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer; border-radius: 16px; }
+    .flashcard.flipped { transform: rotateY(180deg); }
+
+    .card-face { position: absolute; width: 100%; height: 100%; backface-visibility: hidden; border-radius: 16px; background: var(--card-bg); border: 2px solid #334155; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 18px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); }
+    .card-back { transform: rotateY(180deg); justify-content: center; text-align: center; gap: 10px; }
+
+    .visual-container { width: 100%; height: 220px; display: flex; align-items: center; justify-content: center; }
+    svg.map { width: 100%; height: 100%; filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.3)); }
+    path.country { fill: #38bdf8; stroke: #f8fafc; stroke-width: 1.5px; }
+
+    img.flag-img { max-width: 85%; max-height: 170px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); object-fit: contain; }
+
+    .controls { display: flex; flex-direction: column; gap: 10px; width: 340px; }
+    .options-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+
+    button { background: #334155; color: var(--text); border: none; padding: 10px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; font-size: 0.85rem; }
+    button:hover { background: #475569; }
+    button.correct { background: var(--correct) !important; color: white; }
+    button.wrong { background: var(--wrong) !important; color: white; }
+
+    .btn-action { background: var(--accent); color: #0f172a; font-weight: bold; margin-top: 2px; }
+    .btn-action:hover { background: #7dd3fc; }
+
+    .hint { font-size: 0.75rem; color: #94a3b8; text-align: center; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="lang-selector">
+      <button class="lang-btn" onclick="setLanguage('pl')">PL</button>
+      <button class="lang-btn" onclick="setLanguage('en')">EN</button>
+      <button class="lang-btn" onclick="setLanguage('ja')">JA</button>
+    </div>
+    <h1 id="title">🌍 GeoQuiz</h1>
+    <p class="subtitle" id="subtitle">Cała Europa / All Europe</p>
+  </header>
+
+  <div class="mode-select">
+    <button class="mode-btn active" id="mode-maps" onclick="setMode('maps')">Mapy</button>
+    <button class="mode-btn" id="mode-flags" onclick="setMode('flags')">Flagi</button>
+    <button class="mode-btn" id="mode-both" onclick="setMode('both')">Mieszany</button>
+  </div>
+
+  <div class="stats">
+    <div><span id="label-score">Wynik</span>: <span id="score">0</span></div>
+    <div><span id="label-card">Karta</span>: <span id="current-card">1</span>/<span id="total-cards">0</span></div>
+  </div>
+
+  <div class="flashcard-container">
+    <div class="flashcard" id="card" onclick="flipCard()">
+      <div class="card-face card-front">
+        <div class="hint" id="hint-top">Kliknij, aby odwrócić</div>
+        <div class="visual-container" id="visual-container"></div>
+        <div class="hint" id="hint-bottom">Jakie to państwo?</div>
+      </div>
+      <div class="card-face card-back">
+        <img id="back-flag" src="" style="width: 75px; border-radius: 4px; box-shadow: 0 2px 8px rgba(0,0,0,0.3); margin-bottom: 5px;">
+        <h2 id="country-name" style="font-size: 1.6rem; color: var(--accent);"></h2>
+        <p id="country-capital" style="color: #cbd5e1; font-size: 1rem;"></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="options-grid" id="options"></div>
+    <button class="btn-action" id="btn-next" onclick="nextCard()">Następna karta ➔</button>
+  </div>
+
+  <script>
+    const i18n = {
+      pl: {
+        title: "🌍 GeoQuiz",
+        subtitle: "Wszystkie 48 Państw Europy",
+        modeMaps: "Mapy",
+        modeFlags: "Flagi",
+        modeBoth: "Mieszany",
+        score: "Wynik",
+        card: "Karta",
+        hintTop: "Kliknij, aby odwrócić",
+        hintBottom: "Jakie to państwo?",
+        btnNext: "Następna karta ➔",
+        capitalPrefix: "Stolica: "
+      },
+      en: {
+        title: "🌍 GeoQuiz",
+        subtitle: "All 48 European Countries",
+        modeMaps: "Maps",
+        modeFlags: "Flags",
+        modeBoth: "Mixed",
+        score: "Score",
+        card: "Card",
+        hintTop: "Click to flip card",
+        hintBottom: "Which country is this?",
+        btnNext: "Next Card ➔",
+        capitalPrefix: "Capital: "
+      },
+      ja: {
+        title: "🌍 GeoQuiz",
+        subtitle: "全ヨーロッパ48カ国",
+        modeMaps: "地図",
+        modeFlags: "国旗",
+        modeBoth: "ミックス",
+        score: "スコア",
+        card: "カード",
+        hintTop: "クリックして裏返す",
+        hintBottom: "この国はどこでしょう？",
+        btnNext: "次のカード ➔",
+        capitalPrefix: "首都: "
+      }
+    };
+
+    // Pełna baza 48 państw Europy
+    const europeDb = [
+      { id: "008", code: "al", name: { pl: "Albania", en: "Albania", ja: "アルバニア" }, capital: { pl: "Tirana", en: "Tirana", ja: "ティラナ" } },
+      { id: "020", code: "ad", name: { pl: "Andora", en: "Andorra", ja: "アンドラ" }, capital: { pl: "Andora", en: "Andorra la Vella", ja: "アンドラ・ラ・ベリャ" } },
+      { id: "040", code: "at", name: { pl: "Austria", en: "Austria", ja: "オーストリア" }, capital: { pl: "Wiedeń", en: "Vienna", ja: "ウィーン" } },
+      { id: "112", code: "by", name: { pl: "Białoruś", en: "Belarus", ja: "ベラルーシ" }, capital: { pl: "Mińsk", en: "Minsk", ja: "ミンスク" } },
+      { id: "056", code: "be", name: { pl: "Belgia", en: "Belgium", ja: "ベルギー" }, capital: { pl: "Bruksela", en: "Brussels", ja: "ブリュッセル" } },
+      { id: "070", code: "ba", name: { pl: "Bośnia i Hercegowina", en: "Bosnia and Herzegovina", ja: "ボスニア・ヘルツェゴビナ" }, capital: { pl: "Sarajewo", en: "Sarajevo", ja: "サラエヴォ" } },
+      { id: "100", code: "bg", name: { pl: "Bułgaria", en: "Bulgaria", ja: "ブルガリア" }, capital: { pl: "Sofia", en: "Sofia", ja: "ソフィア" } },
+      { id: "191", code: "hr", name: { pl: "Chorwacja", en: "Croatia", ja: "クロアチア" }, capital: { pl: "Zagrzeb", en: "Zagreb", ja: "ザグレブ" } },
+      { id: "196", code: "cy", name: { pl: "Cypr", en: "Cyprus", ja: "キプロス" }, capital: { pl: "Nikozja", en: "Nicosia", ja: "ニコシア" } },
+      { id: "203", code: "cz", name: { pl: "Czechy", en: "Czech Republic", ja: "チェコ" }, capital: { pl: "Praga", en: "Prague", ja: "プラハ" } },
+      { id: "208", code: "dk", name: { pl: "Dania", en: "Denmark", ja: "デンマーク" }, capital: { pl: "Kopenhaga", en: "Copenhagen", ja: "コペンハーゲン" } },
+      { id: "233", code: "ee", name: { pl: "Estonia", en: "Estonia", ja: "エストニア" }, capital: { pl: "Tallinn", en: "Tallinn", ja: "タリン" } },
+      { id: "246", code: "fi", name: { pl: "Finlandia", en: "Finland", ja: "フィンランド" }, capital: { pl: "Helsinki", en: "Helsinki", ja: "ヘルシンキ" } },
+      { id: "250", code: "fr", name: { pl: "Francja", en: "France", ja: "フランス" }, capital: { pl: "Paryż", en: "Paris", ja: "パリ" } },
+      { id: "268", code: "ge", name: { pl: "Gruzja", en: "Georgia", ja: "ジョージア" }, capital: { pl: "Tbilisi", en: "Tbilisi", ja: "トビリシ" } },
+      { id: "276", code: "de", name: { pl: "Niemcy", en: "Germany", ja: "ドイツ" }, capital: { pl: "Berlin", en: "Berlin", ja: "ベルリン" } },
+      { id: "300", code: "gr", name: { pl: "Grecja", en: "Greece", ja: "ギリシャ" }, capital: { pl: "Ateny", en: "Athens", ja: "アテネ" } },
+      { id: "348", code: "hu", name: { pl: "Węgry", en: "Hungary", ja: "ハンガリー" }, capital: { pl: "Budapeszt", en: "Budapest", ja: "ブダペスト" } },
+      { id: "352", code: "is", name: { pl: "Islandia", en: "Iceland", ja: "アイスランド" }, capital: { pl: "Rejkjavik", en: "Reykjavik", ja: "レイキャヴィーク" } },
+      { id: "372", code: "ie", name: { pl: "Irlandia", en: "Ireland", ja: "アイルランド" }, capital: { pl: "Dublin", en: "Dublin", ja: "ダブリン" } },
+      { id: "380", code: "it", name: { pl: "Włochy", en: "Italy", ja: "イタリア" }, capital: { pl: "Rzym", en: "Rome", ja: "ローマ" } },
+      { id: "398", code: "kz", name: { pl: "Kazachstan", en: "Kazakhstan", ja: "カザフスタン" }, capital: { pl: "Astana", en: "Astana", ja: "アスタナ" } },
+      { id: "428", code: "lv", name: { pl: "Łotwa", en: "Latvia", ja: "ラトビア" }, capital: { pl: "Ryga", en: "Riga", ja: "リガ" } },
+      { id: "438", code: "li", name: { pl: "Liechtenstein", en: "Liechtenstein", ja: "リヒテンシュタイン" }, capital: { pl: "Vaduz", en: "Vaduz", ja: "ファドゥーツ" } },
+      { id: "440", code: "lt", name: { pl: "Litwa", en: "Lithuania", ja: "リトアニア" }, capital: { pl: "Wilno", en: "Vilnius", ja: "ヴィルニュス" } },
+      { id: "442", code: "lu", name: { pl: "Luksemburg", en: "Luxembourg", ja: "ルクセンブルク" }, capital: { pl: "Luksemburg", en: "Luxembourg", ja: "ルクセンブルク" } },
+      { id: "470", code: "mt", name: { pl: "Malta", en: "Malta", ja: "マルタ" }, capital: { pl: "Valletta", en: "Valletta", ja: "バレッタ" } },
+      { id: "498", code: "md", name: { pl: "Mołdawia", en: "Moldova", ja: "モルドバ" }, capital: { pl: "Kiszyniów", en: "Chisinau", ja: "キシナウ" } },
+      { id: "492", code: "mc", name: { pl: "Monako", en: "Monaco", ja: "モナコ" }, capital: { pl: "Monako", en: "Monaco", ja: "モナコ" } },
+      { id: "499", code: "me", name: { pl: "Czarnogóra", en: "Montenegro", ja: "モンテネグロ" }, capital: { pl: "Podgorica", en: "Podgorica", ja: "ポドゴリツァ" } },
+      { id: "528", code: "nl", name: { pl: "Holandia", en: "Netherlands", ja: "オランダ" }, capital: { pl: "Amsterdam", en: "Amsterdam", ja: "アムステルダム" } },
+      { id: "807", code: "mk", name: { pl: "Macedonia Północna", en: "North Macedonia", ja: "北マケドニア" }, capital: { pl: "Skopje", en: "Skopje", ja: "スコピエ" } },
+      { id: "578", code: "no", name: { pl: "Norwegia", en: "Norway", ja: "ノルウェー" }, capital: { pl: "Oslo", en: "Oslo", ja: "オスロ" } },
+      { id: "616", code: "pl", name: { pl: "Polska", en: "Poland", ja: "ポーランド" }, capital: { pl: "Warszawa", en: "Warsaw", ja: "ワルシャワ" } },
+      { id: "620", code: "pt", name: { pl: "Portugalia", en: "Portugal", ja: "ポルトガル" }, capital: { pl: "Lizbona", en: "Lisbon", ja: "リスボン" } },
+      { id: "642", code: "ro", name: { pl: "Rumunia", en: "Romania", ja: "ルーマニア" }, capital: { pl: "Bukareszt", en: "Bucharest", ja: "ブカレスト" } },
+      { id: "643", code: "ru", name: { pl: "Rosja", en: "Russia", ja: "ロシア" }, capital: { pl: "Moskwa", en: "Moscow", ja: "モスクワ" } },
+      { id: "674", code: "sm", name: { pl: "San Marino", en: "San Marino", ja: "サンマリノ" }, capital: { pl: "San Marino", en: "San Marino", ja: "サンマリノ" } },
+      { id: "688", code: "rs", name: { pl: "Serbia", en: "Serbia", ja: "セルビア" }, capital: { pl: "Belgrad", en: "Belgrade", ja: "ベオグラード" } },
+      { id: "703", code: "sk", name: { pl: "Słowacja", en: "Slovakia", ja: "スロバキア" }, capital: { pl: "Bratysława", en: "Bratislava", ja: "ブラチスラヴァ" } },
+      { id: "705", code: "si", name: { pl: "Słowenia", en: "Slovenia", ja: "スロベニア" }, capital: { pl: "Lublana", en: "Ljubljana", ja: "リュブリャナ" } },
+      { id: "724", code: "es", name: { pl: "Hiszpania", en: "Spain", ja: "スペイン" }, capital: { pl: "Madryt", en: "Madrid", ja: "マドリード" } },
+      { id: "752", code: "se", name: { pl: "Szwecja", en: "Sweden", ja: "スウェーデン" }, capital: { pl: "Sztokholm", en: "Stockholm", ja: "ストックホルム" } },
+      { id: "756", code: "ch", name: { pl: "Szwajcaria", en: "Switzerland", ja: "スイス" }, capital: { pl: "Berno", en: "Bern", ja: "ベルン" } },
+      { id: "792", code: "tr", name: { pl: "Turcja", en: "Turkey", ja: "トルコ" }, capital: { pl: "Ankara", en: "Ankara", ja: "アンカラ" } },
+      { id: "804", code: "ua", name: { pl: "Ukraina", en: "Ukraine", ja: "ウクライナ" }, capital: { pl: "Kijów", en: "Kyiv", ja: "キーウ" } },
+      { id: "826", code: "gb", name: { pl: "Wielka Brytania", en: "United Kingdom", ja: "イギリス" }, capital: { pl: "Londyn", en: "London", ja: "ロンドン" } },
+      { id: "336", code: "va", name: { pl: "Watykan", en: "Vatican City", ja: "バチカン市国" }, capital: { pl: "Watykan", en: "Vatican City", ja: "バチカン市国" } }
+    ];
+
+    let currentLang = 'en';
+    let currentMode = 'both';
+    let countriesData = [];
+    let currentIndex = 0;
+    let score = 0;
+    let answered = false;
+
+    function detectLanguage() {
+      const userLang = navigator.language || navigator.userLanguage;
+      if (userLang.startsWith('pl')) return 'pl';
+      if (userLang.startsWith('ja')) return 'ja';
+      return 'en';
+    }
+
+    function setLanguage(lang) {
+      currentLang = lang;
+      
+      document.querySelectorAll('.lang-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.lang-btn').forEach(btn => {
+        if (btn.textContent.toLowerCase() === lang) btn.classList.add('active');
+      });
+
+      const t = i18n[lang];
+      document.getElementById('title').textContent = t.title;
+      document.getElementById('subtitle').textContent = t.subtitle;
+      document.getElementById('mode-maps').textContent = t.modeMaps;
+      document.getElementById('mode-flags').textContent = t.modeFlags;
+      document.getElementById('mode-both').textContent = t.modeBoth;
+      document.getElementById('label-score').textContent = t.score;
+      document.getElementById('label-card').textContent = t.card;
+      document.getElementById('hint-top').textContent = t.hintTop;
+      document.getElementById('hint-bottom').textContent = t.hintBottom;
+      document.getElementById('btn-next').textContent = t.btnNext;
+
+      if (countriesData.length > 0) {
+        loadCard();
+      }
+    }
+
+    async function initQuiz() {
+      const userLang = detectLanguage();
+      
+      // Pobieranie map z atlasu świata
+      const response = await fetch('https://cdn.jsdelivr.net/npm/world-atlas@2/countries-110m.json');
+      const world = await response.json();
+      const features = topojson.feature(world, world.objects.countries).features;
+
+      countriesData = europeDb.map(item => {
+        const feat = features.find(f => String(f.id).padStart(3, '0') === item.id);
+        return {
+          ...item,
+          feature: feat
+        };
+      });
+
+      countriesData.sort(() => Math.random() - 0.5);
+      document.getElementById('total-cards').textContent = countriesData.length;
+      
+      setLanguage(userLang);
+    }
+
+    function setMode(mode) {
+      currentMode = mode;
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById(`mode-${mode}`).classList.add('active');
+      loadCard();
+    }
+
+    function loadCard() {
+      answered = false;
+      document.getElementById('card').classList.remove('flipped');
+      const current = countriesData[currentIndex];
+      const t = i18n[currentLang];
+      
+      document.getElementById('current-card').textContent = currentIndex + 1;
+      document.getElementById('country-name').textContent = current.name[currentLang];
+      document.getElementById('country-capital').textContent = t.capitalPrefix + current.capital[currentLang];
+      document.getElementById('back-flag').src = `https://flagcdn.com/w160/${current.code}.png`;
+
+      const visualContainer = document.getElementById('visual-container');
+      visualContainer.innerHTML = '';
+
+      let showMap = false;
+      if (currentMode === 'maps') showMap = true;
+      else if (currentMode === 'flags') showMap = false;
+      else showMap = Math.random() > 0.5;
+
+      if (showMap && current.feature) {
+        const svg = d3.create("svg").attr("class", "map");
+        const projection = d3.geoMercator().fitSize([280, 200], current.feature);
+        const pathGenerator = d3.geoPath().projection(projection);
+
+        svg.append("path")
+          .datum(current.feature)
+          .attr("class", "country")
+          .attr("d", pathGenerator);
+
+        visualContainer.appendChild(svg.node());
+      } else {
+        // Domyślnie flaga, jeśli wybrano tryb flagi lub gdy mapa mikropaństwa nie mieści się na skali
+        const img = document.createElement('img');
+        img.className = 'flag-img';
+        img.src = `https://flagcdn.com/w320/${current.code}.png`;
+        img.alt = current.name[currentLang];
+        visualContainer.appendChild(img);
+      }
+
+      generateOptions(current.name[currentLang]);
+    }
+
+    function generateOptions(correctName) {
+      const optionsContainer = document.getElementById('options');
+      optionsContainer.innerHTML = '';
+
+      let choices = [correctName];
+      while(choices.length < 4) {
+        let randomCountry = countriesData[Math.floor(Math.random() * countriesData.length)].name[currentLang];
+        if(!choices.includes(randomCountry)) choices.push(randomCountry);
+      }
+      choices.sort(() => Math.random() - 0.5);
+
+      choices.forEach(option => {
+        const btn = document.createElement('button');
+        btn.textContent = option;
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          checkAnswer(btn, option, correctName);
+        };
+        optionsContainer.appendChild(btn);
+      });
+    }
+
+    function checkAnswer(btn, selected, correct) {
+      if(answered) return;
+      answered = true;
+
+      if(selected === correct) {
+        btn.classList.add('correct');
+        score += 10;
+        document.getElementById('score').textContent = score;
+      } else {
+        btn.classList.add('wrong');
+      }
+
+      setTimeout(() => {
+        document.getElementById('card').classList.add('flipped');
+      }, 400);
+    }
+
+    function flipCard() {
+      document.getElementById('card').classList.toggle('flipped');
+    }
+
+    function nextCard() {
+      currentIndex = (currentIndex + 1) % countriesData.length;
+      loadCard();
+    }
+
+    initQuiz();
+  </script>
+</body>
+</html>
